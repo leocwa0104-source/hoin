@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const turf = require('@turf/turf');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -19,6 +18,34 @@ app.use((err, req, res, _next) => {
     console.error('Unhandled Error:', err);
     res.status(500).json({ error: 'Internal Server Error', details: err.message });
 });
+
+const pointInRing = (point, ring) => {
+    const x = point[0];
+    const y = point[1];
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i][0];
+        const yi = ring[i][1];
+        const xj = ring[j][0];
+        const yj = ring[j][1];
+
+        const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+};
+
+const pointInPolygon = (point, polygon) => {
+    if (!polygon || polygon.type !== 'Polygon' || !Array.isArray(polygon.coordinates) || polygon.coordinates.length === 0) {
+        return false;
+    }
+    const [outerRing, ...holes] = polygon.coordinates;
+    if (!pointInRing(point, outerRing)) return false;
+    for (const hole of holes) {
+        if (pointInRing(point, hole)) return false;
+    }
+    return true;
+};
 
 // --- In-Memory Database (WARNING: Will reset on Vercel cold starts) ---
 // For a real Vercel app, you MUST use an external DB like MongoDB/Postgres/Redis
@@ -108,8 +135,8 @@ app.get('/api/areas/:areaId/messages', (req, res) => {
     const areaPolygon = area.geometry;
     
     const relevantMessages = db.messages.filter(msg => {
-        const pt = turf.point([msg.location.lng, msg.location.lat]);
-        return turf.booleanPointInPolygon(pt, areaPolygon);
+        const pt = [msg.location.lng, msg.location.lat];
+        return pointInPolygon(pt, areaPolygon);
     });
     
     // Sort by time
