@@ -166,6 +166,30 @@ app.get('/api', (req, res) => {
     res.send("GeoChat API is running");
 });
 
+app.get('/api/health', async (req, res) => {
+    const otpSecret = Boolean(process.env.OTP_SECRET);
+    const hasSecretId = Boolean(process.env.TENCENTCLOUD_SECRET_ID);
+    const hasSecretKey = Boolean(process.env.TENCENTCLOUD_SECRET_KEY);
+    const region = process.env.TENCENTCLOUD_REGION || '';
+    const fromEmail = process.env.FROM_EMAIL;
+    const senderDomain = process.env.SENDER_DOMAIN;
+    const fromLocalPart = process.env.FROM_LOCAL_PART || 'noreply';
+    const from = fromEmail || (senderDomain ? `${fromLocalPart}@${senderDomain}` : '');
+    let db = 'err';
+    try {
+        await ensureSchema();
+        await query('SELECT 1');
+        db = 'ok';
+    } catch { db = 'err'; }
+    res.json({
+        db,
+        otpSecret,
+        ses: { hasSecretId, hasSecretKey, region },
+        from,
+        templateId: process.env.SES_TEMPLATE_ID || null,
+    });
+});
+
 app.get('/api/me', requireAuth, async (req, res) => {
     res.json({ id: req.user.id, email: req.user.email });
 });
