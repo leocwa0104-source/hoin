@@ -1,19 +1,26 @@
 import React from 'react';
 import { MapPin, MessageCircle, LogOut } from 'lucide-react';
 
-const AreaList = ({ areas, onSelectArea, onAddNew, onLogout }) => {
+const AreaList = ({ areas, onSelectArea, onAddNew, onLogout, status }) => {
   return (
     <div className="flex flex-col h-full bg-gray-50 p-4">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">My Zones</h2>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">My Zones</h2>
+          {status === 'loading' && (
+            <div className="text-xs text-gray-400 mt-1">Loading...</div>
+          )}
+        </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={onLogout}
-            className="bg-white hover:bg-gray-50 text-gray-800 px-3 py-2 rounded-lg shadow-sm border transition-colors flex items-center gap-2 text-sm font-medium"
-          >
-            <LogOut size={16} />
-            <span>退出</span>
-          </button>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="bg-white hover:bg-gray-50 text-gray-800 px-3 py-2 rounded-lg shadow-sm border transition-colors flex items-center gap-2 text-sm font-medium"
+            >
+              <LogOut size={16} />
+              <span>退出</span>
+            </button>
+          )}
           <button 
             onClick={onAddNew}
             className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-2 text-sm font-medium"

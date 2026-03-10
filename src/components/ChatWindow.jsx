@@ -148,20 +148,22 @@ const ChatWindow = ({ user, area, onBack, onLogout }) => {
             </span>
           </h2>
         </div>
-        <button
-          onClick={onLogout}
-          className="text-gray-600 hover:text-gray-900 p-2 rounded-full hover:bg-gray-100 transition-colors"
-          aria-label="退出登录"
-          title="退出登录"
-        >
-          <LogOut size={18} />
-        </button>
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="text-gray-600 hover:text-gray-900 p-2 rounded-full hover:bg-gray-100 transition-colors"
+            aria-label="退出登录"
+            title="退出登录"
+          >
+            <LogOut size={18} />
+          </button>
+        )}
       </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => {
-          const isMe = msg.senderId === user.id;
+          const isMe = user && msg.senderId === user.id;
           return (
             <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
               <div 
