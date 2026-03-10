@@ -4,7 +4,7 @@ import AreaList from './components/AreaList';
 import MapPicker from './components/MapPicker';
 import ChatWindow from './components/ChatWindow';
 
-const API_URL = '/api';
+const API_URL = import.meta.env.DEV ? '/api' : '/api';
 
 function App() {
   const [user, setUser] = useState(null);

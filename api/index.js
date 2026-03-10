@@ -27,6 +27,7 @@ app.get('/api', (req, res) => {
 
 // Create a new user (simple registration)
 app.post('/api/users', (req, res) => {
+    console.log('Received login request:', req.body);
     const { name } = req.body;
     const id = uuidv4();
     db.users[id] = { id, name: name || 'Anonymous' };
