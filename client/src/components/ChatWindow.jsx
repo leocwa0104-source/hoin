@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, ArrowLeft } from 'lucide-react';
-import io from 'socket.io-client';
 import axios from 'axios';
 
 const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -8,39 +7,34 @@ const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ChatWindow = ({ user, area, onBack }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
-  const [socket, setSocket] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Fetch history
+  // Polling for messages instead of WebSocket
   useEffect(() => {
-    const fetchHistory = async () => {
+    let isMounted = true;
+    
+    const fetchMessages = async () => {
       try {
         const res = await axios.get(`${SOCKET_URL}/api/areas/${area.id}/messages`);
-        setMessages(res.data);
+        if (isMounted) {
+          setMessages(res.data);
+        }
       } catch (err) {
         console.error("Failed to fetch history", err);
       }
     };
-    fetchHistory();
+
+    // Initial fetch
+    fetchMessages();
+
+    // Poll every 2 seconds
+    const interval = setInterval(fetchMessages, 2000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [area.id]);
-
-  // Socket connection
-  useEffect(() => {
-    const newSocket = io(SOCKET_URL);
-    setSocket(newSocket);
-
-    newSocket.on('connect', () => {
-      newSocket.emit('join', user.id);
-    });
-
-    newSocket.on('new_message', (data) => {
-      if (data.areaId === area.id) {
-        setMessages(prev => [...prev, data.message]);
-      }
-    });
-
-    return () => newSocket.close();
-  }, [user.id, area.id]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -70,6 +64,9 @@ const ChatWindow = ({ user, area, onBack }) => {
     try {
       await axios.post(`${SOCKET_URL}/api/messages`, msgData);
       setInputText('');
+      // Trigger immediate refresh after sending
+      const res = await axios.get(`${SOCKET_URL}/api/areas/${area.id}/messages`);
+      setMessages(res.data);
     } catch (err) {
       console.error("Failed to send", err);
     }
