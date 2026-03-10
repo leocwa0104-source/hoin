@@ -76,7 +76,15 @@ const ensureSchema = async () => {
     } catch (e) { void e; }
     const schemaPath = path.join(__dirname, 'schema.sql');
     const sql = fs.readFileSync(schemaPath, 'utf8');
-    await query(sql);
+    const parts = sql
+        .split(/;\s*\n/g)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+    for (const stmt of parts) {
+        try {
+            await query(stmt.endsWith(';') ? stmt : `${stmt};`);
+        } catch (e) { void e; }
+    }
     global.__schemaReady = true;
 };
 
