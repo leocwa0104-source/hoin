@@ -4,7 +4,7 @@ import AreaList from './components/AreaList';
 import MapPicker from './components/MapPicker';
 import ChatWindow from './components/ChatWindow';
 
-const API_URL = import.meta.env.DEV ? '/api' : '/api';
+const API_URL = '/api';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -131,7 +131,7 @@ function App() {
             <MapPicker onAreaCreated={handleAreaCreated} />
             
             <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur text-white px-6 py-3 rounded-full shadow-2xl text-sm font-medium z-[1000] pointer-events-none">
-              Use the pentagon tool ⬠ to draw an area
+              点击地图开始绘制，多点连线，双击结束
             </div>
           </div>
         </div>
