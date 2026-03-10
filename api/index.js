@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 const app = express();
 
@@ -13,11 +13,10 @@ app.use(cors({
 
 app.use(express.json());
 
-// Error handling middleware
-app.use((err, req, res, _next) => {
-    console.error('Unhandled Error:', err);
-    res.status(500).json({ error: 'Internal Server Error', details: err.message });
-});
+const newId = () => {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return crypto.randomBytes(16).toString('hex');
+};
 
 const pointInRing = (point, ring) => {
     const x = point[0];
@@ -74,7 +73,7 @@ app.post('/api/users', (req, res) => {
             return res.status(400).json({ error: 'Name is required' });
         }
         const { name } = req.body;
-        const id = uuidv4();
+        const id = newId();
         db.users[id] = { id, name: name || 'Anonymous' };
         console.log('User created:', db.users[id]);
         res.json(db.users[id]);
@@ -90,7 +89,7 @@ app.post('/api/areas', (req, res) => {
     if (!userId || !geometry) return res.status(400).send("Missing data");
     
     const area = {
-        id: uuidv4(),
+        id: newId(),
         userId,
         name,
         geometry, 
@@ -115,7 +114,7 @@ app.post('/api/messages', (req, res) => {
     }
 
     const message = {
-        id: uuidv4(),
+        id: newId(),
         senderId,
         content,
         location: { lat, lng },
@@ -143,6 +142,11 @@ app.get('/api/areas/:areaId/messages', (req, res) => {
     relevantMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     
     res.json(relevantMessages.slice(-50));
+});
+
+app.use((err, req, res, _next) => {
+    console.error('Unhandled Error:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
 });
 
 module.exports = app;
