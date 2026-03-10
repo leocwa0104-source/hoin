@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const turf = require('@turf/turf');
+// Temporarily remove turf to isolate the issue
+// const turf = require('@turf/turf');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -105,12 +106,10 @@ app.get('/api/areas/:areaId/messages', (req, res) => {
     if (!area) return res.status(404).send("Area not found");
     
     // Filter messages inside this area
-    const areaPolygon = area.geometry;
+    // const areaPolygon = area.geometry;
     
-    const relevantMessages = db.messages.filter(msg => {
-        const pt = turf.point([msg.location.lng, msg.location.lat]);
-        return turf.booleanPointInPolygon(pt, areaPolygon);
-    });
+    // Temporary disable spatial filter to fix import error
+    const relevantMessages = db.messages;
     
     // Sort by time
     relevantMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
