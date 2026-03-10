@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const nodemailer = require('nodemailer');
+const tencentcloud = require('tencentcloud-sdk-slim-nodejs');
 const { query } = require('./db');
 
 const app = express();
@@ -48,23 +48,21 @@ const clearSessionCookie = (res) => {
     res.setHeader('Set-Cookie', `session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
 };
 
-const getMailer = () => {
-    if (global.__mailer) return global.__mailer;
-    const host = process.env.SMTP_HOST || 'smtp.exmail.qq.com';
-    const port = Number(process.env.SMTP_PORT || 465);
-    const secure = String(process.env.SMTP_SECURE ?? 'true').toLowerCase() === 'true';
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    if (!user || !pass) {
-        throw new Error('Missing SMTP_USER or SMTP_PASS');
+const getSesClient = () => {
+    if (global.__sesClient) return global.__sesClient;
+    const secretId = process.env.TENCENTCLOUD_SECRET_ID;
+    const secretKey = process.env.TENCENTCLOUD_SECRET_KEY;
+    const region = process.env.TENCENTCLOUD_REGION || 'ap-guangzhou';
+    if (!secretId || !secretKey) {
+        throw new Error('Missing TENCENTCLOUD_SECRET_ID or TENCENTCLOUD_SECRET_KEY');
     }
-    global.__mailer = nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: { user, pass },
+    const SesClient = tencentcloud.ses.v20201002.Client;
+    global.__sesClient = new SesClient({
+        credential: { secretId, secretKey },
+        region,
+        profile: { httpProfile: { endpoint: 'ses.tencentcloudapi.com' } },
     });
-    return global.__mailer;
+    return global.__sesClient;
 };
 
 const pointInRing = (point, ring) => {
@@ -159,7 +157,7 @@ app.post('/api/auth/request-otp', async (req, res, next) => {
 
         const code = String(Math.floor(100000 + Math.random() * 900000));
         const codeHash = sha256(`${email}:${code}:${otpSecret}`);
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
         await query('DELETE FROM email_otps WHERE email = $1', [email]);
         await query(
@@ -168,17 +166,30 @@ app.post('/api/auth/request-otp', async (req, res, next) => {
         );
 
         const fromEmail = process.env.FROM_EMAIL;
-        const fallbackFrom = process.env.SMTP_USER;
-        const from = fromEmail || fallbackFrom;
+        const senderDomain = process.env.SENDER_DOMAIN;
+        const fromLocalPart = process.env.FROM_LOCAL_PART || 'noreply';
+        const from = fromEmail || (senderDomain ? `${fromLocalPart}@${senderDomain}` : '');
         if (!from) return res.status(500).json({ error: 'missing_from_email' });
 
-        const transporter = getMailer();
-        await transporter.sendMail({
-            from,
-            to: email,
-            subject: 'GeoChat 验证码',
-            text: `你的验证码是：${code}。10 分钟内有效。`,
-        });
+        const client = getSesClient();
+        const templateIdRaw = String(process.env.SES_TEMPLATE_ID || '').trim();
+        const templateId = templateIdRaw ? Number(templateIdRaw) : 0;
+        const payload = {
+            FromEmailAddress: from,
+            Destination: [email],
+            Subject: 'GeoChat 验证码',
+        };
+        if (templateId && Number.isFinite(templateId)) {
+            payload.Template = {
+                TemplateID: templateId,
+                TemplateData: JSON.stringify({ code }),
+            };
+        } else {
+            payload.Simple = {
+                Text: { Charset: 'UTF-8', Data: `你的验证码是：${code}。15 分钟内有效。如非本人操作请忽略。` },
+            };
+        }
+        await client.SendEmail(payload);
 
         res.json({ ok: true });
     } catch (err) {

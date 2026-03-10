@@ -46,12 +46,13 @@ Location-based chat where users subscribe to custom geographic areas (polygons) 
 - DATABASE_URL=Neon Postgres connection string (sslmode=require)
 - OTP_SECRET=Random string for OTP hashing
 - SESSION_SECRET=Random string for session hashing
-- FROM_EMAIL=Sender email address (Tencent Exmail account)
-- SMTP_HOST=smtp.exmail.qq.com
-- SMTP_PORT=465
-- SMTP_SECURE=true
-- SMTP_USER=your_exmail_account
-- SMTP_PASS=SMTP password / authorization code
+- FROM_EMAIL=Verified sender email address (e.g. noreply@hoin.chat)
+- SENDER_DOMAIN=hoin.chat (optional, used when FROM_EMAIL not set)
+- FROM_LOCAL_PART=noreply (optional, used with SENDER_DOMAIN)
+- TENCENTCLOUD_SECRET_ID=Tencent Cloud SecretId
+- TENCENTCLOUD_SECRET_KEY=Tencent Cloud SecretKey
+- TENCENTCLOUD_REGION=ap-guangzhou (or your SES region)
+- SES_TEMPLATE_ID=Email template ID (optional; TemplateData includes {code})
 
 ### Client (Vercel)
 
