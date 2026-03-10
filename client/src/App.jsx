@@ -4,7 +4,7 @@ import AreaList from './components/AreaList';
 import MapPicker from './components/MapPicker';
 import ChatWindow from './components/ChatWindow';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001') + '/api';
 
 function App() {
   const [user, setUser] = useState(null);
