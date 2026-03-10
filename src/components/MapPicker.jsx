@@ -8,6 +8,7 @@ const MapPicker = ({ onAreaCreated }) => {
   const polygonRef = useRef(null);
 
   const amapKey = import.meta.env.VITE_AMAP_KEY;
+  const amapSecurityJsCode = import.meta.env.VITE_AMAP_SECURITY_JS_CODE;
   const [status, setStatus] = useState(amapKey ? 'loading' : 'missing_key');
 
   const center = useMemo(() => [116.4074, 39.9042], []);
@@ -22,6 +23,9 @@ const MapPicker = ({ onAreaCreated }) => {
 
     const init = async () => {
       try {
+        if (amapSecurityJsCode) {
+          window._AMapSecurityConfig = { securityJsCode: amapSecurityJsCode };
+        }
         AMap = await AMapLoader.load({
           key: amapKey,
           version: '2.0',
@@ -95,7 +99,7 @@ const MapPicker = ({ onAreaCreated }) => {
         mapRef.current = null;
       } catch (err) { void err; }
     };
-  }, [amapKey, center, onAreaCreated]);
+  }, [amapKey, amapSecurityJsCode, center, onAreaCreated]);
 
   return (
     <div className="h-full w-full relative">
