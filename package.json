@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "vite",
+    "dev:api": "node api/dev-server.js",
     "build": "vite build",
     "lint": "eslint ."
   },
@@ -15,6 +16,7 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "lucide-react": "^0.577.0",
+    "nodemailer": "^8.0.2",
     "pg": "^8.16.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

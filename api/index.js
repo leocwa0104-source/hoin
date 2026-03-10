@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 const { query } = require('./db');
 
 const app = express();
@@ -45,6 +46,25 @@ const setSessionCookie = (res, token, maxAgeSeconds) => {
 const clearSessionCookie = (res) => {
     const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
     res.setHeader('Set-Cookie', `session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+};
+
+const getMailer = () => {
+    if (global.__mailer) return global.__mailer;
+    const host = process.env.SMTP_HOST || 'smtp.exmail.qq.com';
+    const port = Number(process.env.SMTP_PORT || 465);
+    const secure = String(process.env.SMTP_SECURE ?? 'true').toLowerCase() === 'true';
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    if (!user || !pass) {
+        throw new Error('Missing SMTP_USER or SMTP_PASS');
+    }
+    global.__mailer = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: { user, pass },
+    });
+    return global.__mailer;
 };
 
 const pointInRing = (point, ring) => {
@@ -147,28 +167,18 @@ app.post('/api/auth/request-otp', async (req, res, next) => {
             [email, codeHash, expiresAt]
         );
 
-        const resendKey = process.env.RESEND_API_KEY;
         const fromEmail = process.env.FROM_EMAIL;
-        if (!resendKey || !fromEmail) return res.status(500).json({ error: 'missing_email_provider_config' });
+        const fallbackFrom = process.env.SMTP_USER;
+        const from = fromEmail || fallbackFrom;
+        if (!from) return res.status(500).json({ error: 'missing_from_email' });
 
-        const response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${resendKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                from: fromEmail,
-                to: [email],
-                subject: 'Your verification code',
-                text: `Your verification code is: ${code}. It expires in 10 minutes.`,
-            }),
+        const transporter = getMailer();
+        await transporter.sendMail({
+            from,
+            to: email,
+            subject: 'GeoChat 验证码',
+            text: `你的验证码是：${code}。10 分钟内有效。`,
         });
-
-        if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            return res.status(500).json({ error: 'email_send_failed', details: text });
-        }
 
         res.json({ ok: true });
     } catch (err) {
