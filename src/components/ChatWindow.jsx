@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, ArrowLeft } from 'lucide-react';
 import axios from 'axios';
 
-const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const SOCKET_URL = '';
 
 const ChatWindow = ({ user, area, onBack }) => {
   const [messages, setMessages] = useState([]);
