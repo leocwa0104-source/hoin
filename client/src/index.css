@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@import 'leaflet/dist/leaflet.css';
+@import 'leaflet-draw/dist/leaflet.draw.css';
+
+/* Override Leaflet's default z-index if needed */
+.leaflet-container {
+    z-index: 10;
+}
