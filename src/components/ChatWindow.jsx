@@ -7,6 +7,73 @@ const ChatWindow = ({ user, area, onBack, onLogout }) => {
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef(null);
 
+  const pointInRing = (point, ring) => {
+    const x = point[0];
+    const y = point[1];
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0];
+      const yi = ring[i][1];
+      const xj = ring[j][0];
+      const yj = ring[j][1];
+      const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  };
+
+  const pointInPolygon = (point, polygon) => {
+    if (!polygon || polygon.type !== 'Polygon' || !Array.isArray(polygon.coordinates) || polygon.coordinates.length === 0) {
+      return false;
+    }
+    const [outerRing, ...holes] = polygon.coordinates;
+    if (!pointInRing(point, outerRing)) return false;
+    for (const hole of holes) {
+      if (pointInRing(point, hole)) return false;
+    }
+    return true;
+  };
+
+  const pickPointInside = (polygon) => {
+    const outer = polygon?.coordinates?.[0];
+    if (!Array.isArray(outer) || outer.length < 3) return null;
+
+    const ring = outer.slice();
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (first?.[0] === last?.[0] && first?.[1] === last?.[1]) ring.pop();
+
+    let minLng = Infinity;
+    let minLat = Infinity;
+    let maxLng = -Infinity;
+    let maxLat = -Infinity;
+    for (const p of ring) {
+      const lng = Number(p[0]);
+      const lat = Number(p[1]);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+      if (lng < minLng) minLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lng > maxLng) maxLng = lng;
+      if (lat > maxLat) maxLat = lat;
+    }
+
+    const avgLng = ring.reduce((sum, p) => sum + Number(p[0]), 0) / ring.length;
+    const avgLat = ring.reduce((sum, p) => sum + Number(p[1]), 0) / ring.length;
+    const centroid = [avgLng, avgLat];
+    if (pointInPolygon(centroid, { type: 'Polygon', coordinates: [outer] })) return centroid;
+
+    for (let i = 0; i < 40; i += 1) {
+      const lng = minLng + Math.random() * (maxLng - minLng);
+      const lat = minLat + Math.random() * (maxLat - minLat);
+      const pt = [lng, lat];
+      if (pointInPolygon(pt, { type: 'Polygon', coordinates: [outer] })) return pt;
+    }
+
+    const fallback = ring[0];
+    if (!fallback) return null;
+    return [Number(fallback[0]), Number(fallback[1])];
+  };
+
   // Polling for messages instead of WebSocket
   useEffect(() => {
     let isMounted = true;
@@ -43,14 +110,11 @@ const ChatWindow = ({ user, area, onBack, onLogout }) => {
     e.preventDefault();
     if (!inputText.trim()) return;
 
-    // Simulate location inside the polygon
-    // We pick the first point of the polygon and add slight random jitter
-    const firstRing = area.geometry.coordinates[0];
-    const firstPoint = firstRing[0]; // [lng, lat]
-    
-    const jitter = () => (Math.random() - 0.5) * 0.001; 
-    const lng = firstPoint[0] + jitter();
-    const lat = firstPoint[1] + jitter();
+    const geometry = typeof area.geometry === 'string' ? JSON.parse(area.geometry) : area.geometry;
+    const picked = pickPointInside(geometry);
+    if (!picked) return;
+    const lng = picked[0];
+    const lat = picked[1];
 
     const msgData = {
       content: inputText,
