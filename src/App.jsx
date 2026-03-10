@@ -8,6 +8,7 @@ import { api } from './api';
 function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState('auth'); // auth, list, map, chat
+  const [booting, setBooting] = useState(true);
   const [areas, setAreas] = useState([]);
   const [selectedArea, setSelectedArea] = useState(null);
 
@@ -20,6 +21,7 @@ function App() {
       setAreas([]);
       setSelectedArea(null);
       setView('auth');
+      setBooting(false);
     }
   }, []);
 
@@ -37,13 +39,19 @@ function App() {
     const restore = async () => {
       try {
         const res = await api.get('/me');
-        if (!mounted) return;
-        setUser(res.data);
-        setView('list');
-        await fetchAreas();
+        if (mounted) {
+          setUser(res.data);
+          setView('list');
+          await fetchAreas();
+        }
       } catch {
-        if (!mounted) return;
-        setView('auth');
+        if (mounted) {
+          setView('auth');
+        }
+      } finally {
+        if (mounted) {
+          setBooting(false);
+        }
       }
     };
     restore();
@@ -66,12 +74,21 @@ function App() {
   };
 
   // Render Logic
+  if (booting) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-white font-sans text-gray-500 text-sm">
+        Loading...
+      </div>
+    );
+  }
+
   if (view === 'auth') {
     return (
       <Auth
         onAuthed={async (u) => {
           setUser(u);
           setView('list');
+          setBooting(false);
           await fetchAreas();
         }}
       />
