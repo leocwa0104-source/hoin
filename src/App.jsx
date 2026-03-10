@@ -11,6 +11,18 @@ function App() {
   const [areas, setAreas] = useState([]);
   const [selectedArea, setSelectedArea] = useState(null);
 
+  const handleLogout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (e) { void e; }
+    finally {
+      setUser(null);
+      setAreas([]);
+      setSelectedArea(null);
+      setView('auth');
+    }
+  }, []);
+
   const fetchAreas = useCallback(async () => {
     try {
       const res = await api.get(`/areas`);
@@ -78,6 +90,7 @@ function App() {
               setView('chat');
             }}
             onAddNew={() => setView('map')}
+            onLogout={handleLogout}
           />
         )}
         
@@ -89,6 +102,7 @@ function App() {
               setSelectedArea(null);
               setView('list');
             }} 
+            onLogout={handleLogout}
           />
         )}
       </div>

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ArrowLeft } from 'lucide-react';
+import { Send, ArrowLeft, LogOut } from 'lucide-react';
 import { api } from '../api';
 
-const ChatWindow = ({ user, area, onBack }) => {
+const ChatWindow = ({ user, area, onBack, onLogout }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef(null);
@@ -76,7 +76,7 @@ const ChatWindow = ({ user, area, onBack }) => {
         <button onClick={onBack} className="text-gray-600 hover:text-gray-900 p-1 rounded-full hover:bg-gray-100 transition-colors">
           <ArrowLeft size={24} />
         </button>
-        <div>
+        <div className="flex-1">
           <h2 className="font-bold text-lg text-gray-800 flex items-center gap-2">
             {area.name}
             <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-100 uppercase tracking-wide">
@@ -84,6 +84,14 @@ const ChatWindow = ({ user, area, onBack }) => {
             </span>
           </h2>
         </div>
+        <button
+          onClick={onLogout}
+          className="text-gray-600 hover:text-gray-900 p-2 rounded-full hover:bg-gray-100 transition-colors"
+          aria-label="退出登录"
+          title="退出登录"
+        >
+          <LogOut size={18} />
+        </button>
       </div>
 
       {/* Messages */}

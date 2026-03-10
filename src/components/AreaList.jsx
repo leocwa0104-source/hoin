@@ -1,18 +1,27 @@
 import React from 'react';
-import { MapPin, MessageCircle } from 'lucide-react';
+import { MapPin, MessageCircle, LogOut } from 'lucide-react';
 
-const AreaList = ({ areas, onSelectArea, onAddNew }) => {
+const AreaList = ({ areas, onSelectArea, onAddNew, onLogout }) => {
   return (
     <div className="flex flex-col h-full bg-gray-50 p-4">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">My Zones</h2>
-        <button 
-          onClick={onAddNew}
-          className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-2 text-sm font-medium"
-        >
-          <MapPin size={16} />
-          <span>New Zone</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onLogout}
+            className="bg-white hover:bg-gray-50 text-gray-800 px-3 py-2 rounded-lg shadow-sm border transition-colors flex items-center gap-2 text-sm font-medium"
+          >
+            <LogOut size={16} />
+            <span>退出</span>
+          </button>
+          <button 
+            onClick={onAddNew}
+            className="bg-black hover:bg-gray-800 text-white px-4 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-2 text-sm font-medium"
+          >
+            <MapPin size={16} />
+            <span>New Zone</span>
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-3">
