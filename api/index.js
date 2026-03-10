@@ -52,9 +52,9 @@ const clearSessionCookie = (res) => {
 
 const getSesClient = () => {
     if (global.__sesClient) return global.__sesClient;
-    const secretId = process.env.TENCENTCLOUD_SECRET_ID;
-    const secretKey = process.env.TENCENTCLOUD_SECRET_KEY;
-    const region = process.env.TENCENTCLOUD_REGION || 'ap-guangzhou';
+    const secretId = (process.env.TENCENTCLOUD_SECRET_ID || '').trim();
+    const secretKey = (process.env.TENCENTCLOUD_SECRET_KEY || '').trim();
+    const region = (process.env.TENCENTCLOUD_REGION || 'ap-guangzhou').trim();
     if (!secretId || !secretKey) {
         throw new Error('Missing TENCENTCLOUD_SECRET_ID or TENCENTCLOUD_SECRET_KEY');
     }
