@@ -4,8 +4,21 @@ const turf = require('@turf/turf');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-app.use(cors());
+
+// Configure CORS for Vercel
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Unhandled Error:', err);
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+});
 
 // --- In-Memory Database (WARNING: Will reset on Vercel cold starts) ---
 // For a real Vercel app, you MUST use an external DB like MongoDB/Postgres/Redis
@@ -27,11 +40,21 @@ app.get('/api', (req, res) => {
 
 // Create a new user (simple registration)
 app.post('/api/users', (req, res) => {
-    console.log('Received login request:', req.body);
-    const { name } = req.body;
-    const id = uuidv4();
-    db.users[id] = { id, name: name || 'Anonymous' };
-    res.json(db.users[id]);
+    try {
+        console.log('Received login request:', req.body);
+        if (!req.body || !req.body.name) {
+            console.error('Missing name in request body');
+            return res.status(400).json({ error: 'Name is required' });
+        }
+        const { name } = req.body;
+        const id = uuidv4();
+        db.users[id] = { id, name: name || 'Anonymous' };
+        console.log('User created:', db.users[id]);
+        res.json(db.users[id]);
+    } catch (error) {
+        console.error('Error creating user:', error);
+        res.status(500).json({ error: 'Failed to create user' });
+    }
 });
 
 // Create a new area subscription
