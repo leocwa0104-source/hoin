@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-// Temporarily remove turf to isolate the issue
-// const turf = require('@turf/turf');
+const turf = require('@turf/turf');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -16,7 +15,7 @@ app.use(cors({
 app.use(express.json());
 
 // Error handling middleware
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
     console.error('Unhandled Error:', err);
     res.status(500).json({ error: 'Internal Server Error', details: err.message });
 });
@@ -106,10 +105,12 @@ app.get('/api/areas/:areaId/messages', (req, res) => {
     if (!area) return res.status(404).send("Area not found");
     
     // Filter messages inside this area
-    // const areaPolygon = area.geometry;
+    const areaPolygon = area.geometry;
     
-    // Temporary disable spatial filter to fix import error
-    const relevantMessages = db.messages;
+    const relevantMessages = db.messages.filter(msg => {
+        const pt = turf.point([msg.location.lng, msg.location.lat]);
+        return turf.booleanPointInPolygon(pt, areaPolygon);
+    });
     
     // Sort by time
     relevantMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
