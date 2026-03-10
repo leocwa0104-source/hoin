@@ -3,6 +3,8 @@ const cors = require('cors');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const tencentcloud = require('tencentcloud-sdk-slim-nodejs');
+const fs = require('fs');
+const path = require('path');
 const { query } = require('./db');
 
 const app = express();
@@ -63,6 +65,19 @@ const getSesClient = () => {
         profile: { httpProfile: { endpoint: 'ses.tencentcloudapi.com' } },
     });
     return global.__sesClient;
+};
+
+const ensureSchema = async () => {
+    if (global.__schemaReady) return;
+    try {
+        await query('SELECT 1 FROM email_otps LIMIT 1');
+        global.__schemaReady = true;
+        return;
+    } catch (e) { void e; }
+    const schemaPath = path.join(__dirname, 'schema.sql');
+    const sql = fs.readFileSync(schemaPath, 'utf8');
+    await query(sql);
+    global.__schemaReady = true;
 };
 
 const pointInRing = (point, ring) => {
@@ -149,6 +164,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
 
 app.post('/api/auth/request-otp', async (req, res, next) => {
     try {
+        await ensureSchema();
         const otpSecret = process.env.OTP_SECRET;
         if (!otpSecret) return res.status(500).json({ error: 'missing_otp_secret' });
 
@@ -199,6 +215,7 @@ app.post('/api/auth/request-otp', async (req, res, next) => {
 
 app.post('/api/auth/register', async (req, res, next) => {
     try {
+        await ensureSchema();
         const otpSecret = process.env.OTP_SECRET;
         const sessionSecret = process.env.SESSION_SECRET;
         if (!otpSecret) return res.status(500).json({ error: 'missing_otp_secret' });
@@ -260,6 +277,7 @@ app.post('/api/auth/register', async (req, res, next) => {
 
 app.post('/api/auth/login', async (req, res, next) => {
     try {
+        await ensureSchema();
         const sessionSecret = process.env.SESSION_SECRET;
         if (!sessionSecret) return res.status(500).json({ error: 'missing_session_secret' });
 
