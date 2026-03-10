@@ -1,10 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const { query } = require('./db');
 
 const app = express();
 
-// Configure CORS for Vercel
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -13,9 +14,37 @@ app.use(cors({
 
 app.use(express.json());
 
-const newId = () => {
-    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-    return crypto.randomBytes(16).toString('hex');
+const sha256 = (input) => crypto.createHash('sha256').update(input).digest('hex');
+
+const randomToken = () => {
+    const buf = crypto.randomBytes(32);
+    if (typeof buf.toString === 'function') return buf.toString('base64url');
+    return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+};
+
+const parseCookies = (cookieHeader) => {
+    const result = {};
+    if (!cookieHeader) return result;
+    const parts = cookieHeader.split(';');
+    for (const part of parts) {
+        const idx = part.indexOf('=');
+        if (idx === -1) continue;
+        const key = part.slice(0, idx).trim();
+        const value = part.slice(idx + 1).trim();
+        if (!key) continue;
+        result[key] = decodeURIComponent(value);
+    }
+    return result;
+};
+
+const setSessionCookie = (res, token, maxAgeSeconds) => {
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    res.setHeader('Set-Cookie', `session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`);
+};
+
+const clearSessionCookie = (res) => {
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    res.setHeader('Set-Cookie', `session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
 };
 
 const pointInRing = (point, ring) => {
@@ -46,102 +75,313 @@ const pointInPolygon = (point, polygon) => {
     return true;
 };
 
-// --- In-Memory Database (WARNING: Will reset on Vercel cold starts) ---
-// For a real Vercel app, you MUST use an external DB like MongoDB/Postgres/Redis
-// Because Vercel functions are stateless and ephemeral.
-// However, for this demo to work briefly during a session, we'll keep it.
-// But beware data will vanish frequently.
-global.db = global.db || {
-    users: {},
-    areas: [],
-    messages: []
+const getPolygonBbox = (geometry) => {
+    if (!geometry || geometry.type !== 'Polygon' || !Array.isArray(geometry.coordinates) || geometry.coordinates.length === 0) {
+        return null;
+    }
+    const ring = geometry.coordinates[0];
+    if (!Array.isArray(ring) || ring.length < 3) return null;
+    let minLng = Infinity;
+    let minLat = Infinity;
+    let maxLng = -Infinity;
+    let maxLat = -Infinity;
+    for (const p of ring) {
+        const lng = Number(p[0]);
+        const lat = Number(p[1]);
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+        if (lng < minLng) minLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lng > maxLng) maxLng = lng;
+        if (lat > maxLat) maxLat = lat;
+    }
+    return { minLng, minLat, maxLng, maxLat };
 };
-const db = global.db;
 
-// --- API Routes ---
+const requireAuth = async (req, res, next) => {
+    try {
+        const cookies = parseCookies(req.headers.cookie);
+        const token = cookies.session;
+        if (!token) return res.status(401).json({ error: 'unauthorized' });
+        const sessionSecret = process.env.SESSION_SECRET;
+        if (!sessionSecret) return res.status(500).json({ error: 'missing_session_secret' });
+        const tokenHash = sha256(`${sessionSecret}:${token}`);
+        const result = await query(
+            `SELECT u.id, u.email
+             FROM sessions s
+             JOIN users u ON u.id = s.user_id
+             WHERE s.token_hash = $1 AND s.expires_at > now()
+             LIMIT 1`,
+            [tokenHash]
+        );
+        if (result.rows.length === 0) return res.status(401).json({ error: 'unauthorized' });
+        req.user = result.rows[0];
+        next();
+    } catch (err) {
+        next(err);
+    }
+};
 
 app.get('/api', (req, res) => {
     res.send("GeoChat API is running");
 });
 
-// Create a new user (simple registration)
-app.post('/api/users', (req, res) => {
+app.get('/api/me', requireAuth, async (req, res) => {
+    res.json({ id: req.user.id, email: req.user.email });
+});
+
+app.post('/api/auth/request-otp', async (req, res, next) => {
     try {
-        console.log('Received login request:', req.body);
-        if (!req.body || !req.body.name) {
-            console.error('Missing name in request body');
-            return res.status(400).json({ error: 'Name is required' });
+        const otpSecret = process.env.OTP_SECRET;
+        if (!otpSecret) return res.status(500).json({ error: 'missing_otp_secret' });
+
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'invalid_email' });
+
+        const code = String(Math.floor(100000 + Math.random() * 900000));
+        const codeHash = sha256(`${email}:${code}:${otpSecret}`);
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+        await query('DELETE FROM email_otps WHERE email = $1', [email]);
+        await query(
+            'INSERT INTO email_otps (email, code_hash, expires_at) VALUES ($1, $2, $3)',
+            [email, codeHash, expiresAt]
+        );
+
+        const resendKey = process.env.RESEND_API_KEY;
+        const fromEmail = process.env.FROM_EMAIL;
+        if (!resendKey || !fromEmail) return res.status(500).json({ error: 'missing_email_provider_config' });
+
+        const response = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${resendKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                from: fromEmail,
+                to: [email],
+                subject: 'Your verification code',
+                text: `Your verification code is: ${code}. It expires in 10 minutes.`,
+            }),
+        });
+
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            return res.status(500).json({ error: 'email_send_failed', details: text });
         }
-        const { name } = req.body;
-        const id = newId();
-        db.users[id] = { id, name: name || 'Anonymous' };
-        console.log('User created:', db.users[id]);
-        res.json(db.users[id]);
-    } catch (error) {
-        console.error('Error creating user:', error);
-        res.status(500).json({ error: 'Failed to create user' });
+
+        res.json({ ok: true });
+    } catch (err) {
+        next(err);
     }
 });
 
-// Create a new area subscription
-app.post('/api/areas', (req, res) => {
-    const { userId, name, geometry } = req.body;
-    if (!userId || !geometry) return res.status(400).send("Missing data");
-    
-    const area = {
-        id: newId(),
-        userId,
-        name,
-        geometry, 
-        createdAt: new Date()
-    };
-    db.areas.push(area);
-    res.json(area);
-});
+app.post('/api/auth/register', async (req, res, next) => {
+    try {
+        const otpSecret = process.env.OTP_SECRET;
+        const sessionSecret = process.env.SESSION_SECRET;
+        if (!otpSecret) return res.status(500).json({ error: 'missing_otp_secret' });
+        if (!sessionSecret) return res.status(500).json({ error: 'missing_session_secret' });
 
-// Get user's areas
-app.get('/api/areas/:userId', (req, res) => {
-    const userAreas = db.areas.filter(a => a.userId === req.params.userId);
-    res.json(userAreas);
-});
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        const code = String(req.body?.code || '').trim();
+        const password = String(req.body?.password || '');
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'invalid_email' });
+        if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: 'invalid_code' });
+        if (password.length < 8) return res.status(400).json({ error: 'password_too_short' });
 
-// Send a message
-app.post('/api/messages', (req, res) => {
-    const { senderId, content, lat, lng } = req.body;
-    
-    if (lat === undefined || lng === undefined || !content) {
-        return res.status(400).send("Missing data");
+        const otpRes = await query(
+            `SELECT id, code_hash, expires_at, attempts
+             FROM email_otps
+             WHERE email = $1
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [email]
+        );
+        if (otpRes.rows.length === 0) return res.status(400).json({ error: 'code_not_found' });
+        const otpRow = otpRes.rows[0];
+        if (new Date(otpRow.expires_at).getTime() < Date.now()) return res.status(400).json({ error: 'code_expired' });
+        if (Number(otpRow.attempts) >= 5) return res.status(400).json({ error: 'too_many_attempts' });
+
+        const expectedHash = sha256(`${email}:${code}:${otpSecret}`);
+        if (expectedHash !== otpRow.code_hash) {
+            await query('UPDATE email_otps SET attempts = attempts + 1 WHERE id = $1', [otpRow.id]);
+            return res.status(400).json({ error: 'code_invalid' });
+        }
+
+        const existing = await query('SELECT id FROM users WHERE email = $1 LIMIT 1', [email]);
+        if (existing.rows.length > 0) return res.status(409).json({ error: 'email_in_use' });
+
+        const passwordHash = await bcrypt.hash(password, 10);
+        const userRes = await query(
+            `INSERT INTO users (email, password_hash, email_verified_at)
+             VALUES ($1, $2, now())
+             RETURNING id, email`,
+            [email, passwordHash]
+        );
+        await query('DELETE FROM email_otps WHERE email = $1', [email]);
+
+        const token = randomToken();
+        const tokenHash = sha256(`${sessionSecret}:${token}`);
+        const maxAgeSeconds = 30 * 24 * 60 * 60;
+        const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000);
+        await query(
+            `INSERT INTO sessions (user_id, token_hash, expires_at)
+             VALUES ($1, $2, $3)`,
+            [userRes.rows[0].id, tokenHash, expiresAt]
+        );
+        setSessionCookie(res, token, maxAgeSeconds);
+        res.json(userRes.rows[0]);
+    } catch (err) {
+        next(err);
     }
-
-    const message = {
-        id: newId(),
-        senderId,
-        content,
-        location: { lat, lng },
-        createdAt: new Date()
-    };
-    
-    db.messages.push(message);
-    res.json({ success: true });
 });
 
-// Get messages for a specific area (Polling endpoint)
-app.get('/api/areas/:areaId/messages', (req, res) => {
-    const area = db.areas.find(a => a.id === req.params.areaId);
-    if (!area) return res.status(404).send("Area not found");
-    
-    // Filter messages inside this area
-    const areaPolygon = area.geometry;
-    
-    const relevantMessages = db.messages.filter(msg => {
-        const pt = [msg.location.lng, msg.location.lat];
-        return pointInPolygon(pt, areaPolygon);
-    });
-    
-    // Sort by time
-    relevantMessages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-    
-    res.json(relevantMessages.slice(-50));
+app.post('/api/auth/login', async (req, res, next) => {
+    try {
+        const sessionSecret = process.env.SESSION_SECRET;
+        if (!sessionSecret) return res.status(500).json({ error: 'missing_session_secret' });
+
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        const password = String(req.body?.password || '');
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'invalid_email' });
+        if (!password) return res.status(400).json({ error: 'invalid_password' });
+
+        const userRes = await query('SELECT id, email, password_hash FROM users WHERE email = $1 LIMIT 1', [email]);
+        if (userRes.rows.length === 0) return res.status(401).json({ error: 'invalid_credentials' });
+
+        const ok = await bcrypt.compare(password, userRes.rows[0].password_hash);
+        if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
+
+        const token = randomToken();
+        const tokenHash = sha256(`${sessionSecret}:${token}`);
+        const maxAgeSeconds = 30 * 24 * 60 * 60;
+        const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000);
+        await query(
+            `INSERT INTO sessions (user_id, token_hash, expires_at)
+             VALUES ($1, $2, $3)`,
+            [userRes.rows[0].id, tokenHash, expiresAt]
+        );
+        setSessionCookie(res, token, maxAgeSeconds);
+        res.json({ id: userRes.rows[0].id, email: userRes.rows[0].email });
+    } catch (err) {
+        next(err);
+    }
+});
+
+app.post('/api/auth/logout', requireAuth, async (req, res, next) => {
+    try {
+        const cookies = parseCookies(req.headers.cookie);
+        const token = cookies.session;
+        const sessionSecret = process.env.SESSION_SECRET;
+        if (token && sessionSecret) {
+            const tokenHash = sha256(`${sessionSecret}:${token}`);
+            await query('DELETE FROM sessions WHERE token_hash = $1', [tokenHash]);
+        }
+        clearSessionCookie(res);
+        res.json({ ok: true });
+    } catch (err) {
+        next(err);
+    }
+});
+
+app.get('/api/areas', requireAuth, async (req, res, next) => {
+    try {
+        const result = await query(
+            `SELECT id, name, geometry, created_at
+             FROM areas
+             WHERE user_id = $1
+             ORDER BY created_at DESC`,
+            [req.user.id]
+        );
+        res.json(result.rows.map((r) => ({ ...r, createdAt: r.created_at })));
+    } catch (err) {
+        next(err);
+    }
+});
+
+app.post('/api/areas', requireAuth, async (req, res, next) => {
+    try {
+        const name = String(req.body?.name || '').trim();
+        const geometry = req.body?.geometry;
+        if (!name || !geometry) return res.status(400).json({ error: 'missing_data' });
+
+        const bbox = getPolygonBbox(geometry);
+        if (!bbox) return res.status(400).json({ error: 'invalid_geometry' });
+
+        const result = await query(
+            `INSERT INTO areas (user_id, name, geometry, bbox_min_lng, bbox_min_lat, bbox_max_lng, bbox_max_lat)
+             VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
+             RETURNING id, name, geometry, created_at`,
+            [req.user.id, name, JSON.stringify(geometry), bbox.minLng, bbox.minLat, bbox.maxLng, bbox.maxLat]
+        );
+        const row = result.rows[0];
+        res.json({ ...row, createdAt: row.created_at });
+    } catch (err) {
+        next(err);
+    }
+});
+
+app.post('/api/messages', requireAuth, async (req, res, next) => {
+    try {
+        const content = String(req.body?.content || '').trim();
+        const lat = req.body?.lat;
+        const lng = req.body?.lng;
+        if (!content || lat === undefined || lng === undefined) return res.status(400).json({ error: 'missing_data' });
+        const latNum = Number(lat);
+        const lngNum = Number(lng);
+        if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return res.status(400).json({ error: 'invalid_location' });
+
+        await query(
+            `INSERT INTO messages (sender_id, content, lng, lat)
+             VALUES ($1, $2, $3, $4)`,
+            [req.user.id, content, lngNum, latNum]
+        );
+        res.json({ ok: true });
+    } catch (err) {
+        next(err);
+    }
+});
+
+app.get('/api/areas/:areaId/messages', requireAuth, async (req, res, next) => {
+    try {
+        const areaId = req.params.areaId;
+        const areaRes = await query(
+            `SELECT id, geometry, bbox_min_lng, bbox_min_lat, bbox_max_lng, bbox_max_lat
+             FROM areas
+             WHERE id = $1 AND user_id = $2
+             LIMIT 1`,
+            [areaId, req.user.id]
+        );
+        if (areaRes.rows.length === 0) return res.status(404).json({ error: 'area_not_found' });
+        const area = areaRes.rows[0];
+        const geometry = area.geometry;
+
+        const msgRes = await query(
+            `SELECT id, sender_id, content, lng, lat, created_at
+             FROM messages
+             WHERE lng >= $1 AND lng <= $2 AND lat >= $3 AND lat <= $4
+             ORDER BY created_at ASC
+             LIMIT 200`,
+            [area.bbox_min_lng, area.bbox_max_lng, area.bbox_min_lat, area.bbox_max_lat]
+        );
+        const filtered = [];
+        for (const m of msgRes.rows) {
+            const pt = [Number(m.lng), Number(m.lat)];
+            if (pointInPolygon(pt, geometry)) {
+                filtered.push({
+                    id: m.id,
+                    senderId: m.sender_id,
+                    content: m.content,
+                    location: { lng: Number(m.lng), lat: Number(m.lat) },
+                    createdAt: m.created_at,
+                });
+            }
+        }
+        res.json(filtered.slice(-50));
+    } catch (err) {
+        next(err);
+    }
 });
 
 app.use((err, req, res, _next) => {

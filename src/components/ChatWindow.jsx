@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, ArrowLeft } from 'lucide-react';
-import axios from 'axios';
-
-const SOCKET_URL = '';
+import { api } from '../api';
 
 const ChatWindow = ({ user, area, onBack }) => {
   const [messages, setMessages] = useState([]);
@@ -15,7 +13,7 @@ const ChatWindow = ({ user, area, onBack }) => {
     
     const fetchMessages = async () => {
       try {
-        const res = await axios.get(`${SOCKET_URL}/api/areas/${area.id}/messages`);
+        const res = await api.get(`/areas/${area.id}/messages`);
         if (isMounted) {
           setMessages(res.data);
         }
@@ -55,17 +53,16 @@ const ChatWindow = ({ user, area, onBack }) => {
     const lat = firstPoint[1] + jitter();
 
     const msgData = {
-      senderId: user.id,
       content: inputText,
       lat,
       lng
     };
 
     try {
-      await axios.post(`${SOCKET_URL}/api/messages`, msgData);
+      await api.post(`/messages`, msgData);
       setInputText('');
       // Trigger immediate refresh after sending
-      const res = await axios.get(`${SOCKET_URL}/api/areas/${area.id}/messages`);
+      const res = await api.get(`/areas/${area.id}/messages`);
       setMessages(res.data);
     } catch (err) {
       console.error("Failed to send", err);

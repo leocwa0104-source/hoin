@@ -1,52 +1,51 @@
-import React, { useState } from 'react';
-import axios from 'axios';
+import React, { useCallback, useEffect, useState } from 'react';
 import AreaList from './components/AreaList';
 import MapPicker from './components/MapPicker';
 import ChatWindow from './components/ChatWindow';
-
-const API_URL = '/api';
+import Auth from './components/Auth';
+import { api } from './api';
 
 function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('login'); // login, list, map, chat
+  const [view, setView] = useState('auth'); // auth, list, map, chat
   const [areas, setAreas] = useState([]);
   const [selectedArea, setSelectedArea] = useState(null);
-  const [username, setUsername] = useState('');
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    if (!username) return;
+  const fetchAreas = useCallback(async () => {
     try {
-      const res = await axios.post(`${API_URL}/users`, { name: username });
-      setUser(res.data);
-      setView('list');
-      fetchAreas(res.data.id);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const fetchAreas = async (userId) => {
-    try {
-      const res = await axios.get(`${API_URL}/areas/${userId}`);
+      const res = await api.get(`/areas`);
       setAreas(res.data);
     } catch (err) {
       console.error(err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const restore = async () => {
+      try {
+        const res = await api.get('/me');
+        if (!mounted) return;
+        setUser(res.data);
+        setView('list');
+        await fetchAreas();
+      } catch {
+        if (!mounted) return;
+        setView('auth');
+      }
+    };
+    restore();
+    return () => { mounted = false; };
+  }, [fetchAreas]);
 
   const handleAreaCreated = async (geometry) => {
     const name = prompt("Name this zone (e.g., 'Home', 'Office'):");
     if (!name) return; // If cancelled, user stays on map
 
     try {
-      await axios.post(`${API_URL}/areas`, {
-        userId: user.id,
-        name,
-        geometry
-      });
+      await api.post(`/areas`, { name, geometry });
       // Refresh list
-      await fetchAreas(user.id);
+      await fetchAreas();
       setView('list');
     } catch (err) {
       console.error(err);
@@ -55,35 +54,15 @@ function App() {
   };
 
   // Render Logic
-  if (view === 'login') {
+  if (view === 'auth') {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50 p-4 font-sans">
-        <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm border border-gray-100">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2 tracking-tight">GeoChat</h1>
-            <p className="text-gray-500 text-sm">Define your world. Listen in.</p>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1 ml-1">Nickname</label>
-              <input
-                type="text"
-                placeholder="Enter your name"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                className="w-full p-4 bg-gray-50 rounded-xl border-2 border-transparent focus:border-black focus:bg-white outline-none transition-all font-medium"
-              />
-            </div>
-            <button 
-              type="submit" 
-              disabled={!username}
-              className="w-full bg-black text-white p-4 rounded-xl font-bold text-lg hover:scale-[1.02] active:scale-[0.98] transition-transform disabled:opacity-50"
-            >
-              Enter
-            </button>
-          </form>
-        </div>
-      </div>
+      <Auth
+        onAuthed={async (u) => {
+          setUser(u);
+          setView('list');
+          await fetchAreas();
+        }}
+      />
     );
   }
 
