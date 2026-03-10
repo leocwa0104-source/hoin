@@ -7,10 +7,10 @@ import { api } from './api';
 
 function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('auth'); // auth, list, map, chat
-  const [booting, setBooting] = useState(true);
+  const [view, setView] = useState('loading'); // loading, auth, list, map, chat
   const [areas, setAreas] = useState([]);
   const [selectedArea, setSelectedArea] = useState(null);
+  const [booting, setBooting] = useState(true);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -21,7 +21,6 @@ function App() {
       setAreas([]);
       setSelectedArea(null);
       setView('auth');
-      setBooting(false);
     }
   }, []);
 
@@ -39,19 +38,15 @@ function App() {
     const restore = async () => {
       try {
         const res = await api.get('/me');
-        if (mounted) {
-          setUser(res.data);
-          setView('list');
-          await fetchAreas();
-        }
+        if (!mounted) return;
+        setUser(res.data);
+        setView('list');
+        await fetchAreas();
       } catch {
-        if (mounted) {
-          setView('auth');
-        }
+        if (!mounted) return;
+        setView('auth');
       } finally {
-        if (mounted) {
-          setBooting(false);
-        }
+        if (mounted) setBooting(false);
       }
     };
     restore();
@@ -75,11 +70,7 @@ function App() {
 
   // Render Logic
   if (booting) {
-    return (
-      <div className="h-screen w-full flex items-center justify-center bg-white font-sans text-gray-500 text-sm">
-        Loading...
-      </div>
-    );
+    return <div className="h-screen w-full bg-white" />;
   }
 
   if (view === 'auth') {
@@ -88,7 +79,6 @@ function App() {
         onAuthed={async (u) => {
           setUser(u);
           setView('list');
-          setBooting(false);
           await fetchAreas();
         }}
       />
