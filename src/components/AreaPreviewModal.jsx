@@ -132,7 +132,7 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
         aria-label="关闭"
       />
       <div className="absolute inset-0 p-4 md:p-8 flex items-center justify-center">
-        <div className="w-full h-full max-w-4xl max-h-[85vh] bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-200 flex flex-col">
+        <div className="w-full max-w-4xl h-[80vh] min-h-[420px] bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-200 flex flex-col">
           <div className="px-4 py-3 border-b flex items-center justify-between">
             <div className="font-semibold text-gray-900">查看区域</div>
             <button
