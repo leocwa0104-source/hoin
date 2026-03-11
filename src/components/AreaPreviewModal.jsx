@@ -1,146 +1,66 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import AMapLoader from '@amap/amap-jsapi-loader';
 import { X } from 'lucide-react';
 
-const normalizeGeometry = (geometry) => {
-  if (!geometry) return null;
-  if (typeof geometry === 'string') {
-    try {
-      return JSON.parse(geometry);
-    } catch {
-      return null;
-    }
-  }
-  return geometry;
-};
-
-const AreaPreviewModal = ({ open, onClose, geometry }) => {
+const AreaPreviewModal = ({ geometry, onClose }) => {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const polygonRef = useRef(null);
+  const [error, setError] = useState('');
 
   const amapKey = import.meta.env.VITE_AMAP_KEY;
   const amapSecurityJsCode = import.meta.env.VITE_AMAP_SECURITY_JS_CODE;
 
-  const normalized = useMemo(() => normalizeGeometry(geometry), [geometry]);
-  const [status, setStatus] = useState(amapKey ? 'idle' : 'missing_key');
-  const [pathCount, setPathCount] = useState(0);
-  const svgPath = useMemo(() => {
-    const poly = normalized;
-    if (!poly || poly.type !== 'Polygon' || !Array.isArray(poly.coordinates) || poly.coordinates.length === 0) {
-      return null;
-    }
-    const outer = poly.coordinates[0] || [];
-    if (!Array.isArray(outer) || outer.length < 3) return null;
-    let minLng = Infinity;
-    let minLat = Infinity;
-    let maxLng = -Infinity;
-    let maxLat = -Infinity;
-    const pts = [];
-    for (const p of outer) {
-      const lng = Number(p[0]);
-      const lat = Number(p[1]);
-      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
-      pts.push([lng, lat]);
-      if (lng < minLng) minLng = lng;
-      if (lat < minLat) minLat = lat;
-      if (lng > maxLng) maxLng = lng;
-      if (lat > maxLat) maxLat = lat;
-    }
-    const w = maxLng - minLng || 1;
-    const h = maxLat - minLat || 1;
-    const toSvg = (lng, lat) => {
-      const x = ((lng - minLng) / w) * 1000;
-      const y = (1 - (lat - minLat) / h) * 1000; // invert Y
-      return [x, y];
-    };
-    const d = pts
-      .map(([lng, lat], i) => {
-        const [x, y] = toSvg(lng, lat);
-        return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-      })
-      .join(' ')
-      .concat(' Z');
-    return d;
-  }, [normalized]);
-
   useEffect(() => {
-    if (!open) return;
-    if (!amapKey) return;
-
     let destroyed = false;
     let AMap = null;
-
-    const init = async () => {
+    const run = async () => {
       try {
-        setStatus('loading');
+        if (!amapKey) {
+          setError('缺少 VITE_AMAP_KEY');
+          return;
+        }
         if (amapSecurityJsCode) {
           window._AMapSecurityConfig = { securityJsCode: amapSecurityJsCode };
         }
         AMap = await AMapLoader.load({
           key: amapKey,
           version: '2.0',
+          plugins: [],
         });
-        if (destroyed) return;
-        if (!containerRef.current) return;
-
-        const center = (() => {
-          const outer = normalized?.coordinates?.[0];
-          if (!Array.isArray(outer) || outer.length === 0) return undefined;
-          const first = outer[0];
-          const lng = Number(first?.[0]);
-          const lat = Number(first?.[1]);
-          if (!Number.isFinite(lng) || !Number.isFinite(lat)) return undefined;
-          return [lng, lat];
-        })();
+        if (destroyed || !containerRef.current) return;
 
         const map = new AMap.Map(containerRef.current, {
           viewMode: '2D',
-          zoom: 13,
-          center,
+          zoom: 12,
         });
         mapRef.current = map;
-        map.resize?.();
 
-        if (normalized?.type === 'Polygon' && Array.isArray(normalized.coordinates) && normalized.coordinates.length > 0) {
-          const outer = normalized.coordinates[0] || [];
-          const path = outer
-            .map((p) => ({ lng: Number(p[0]), lat: Number(p[1]) }))
-            .filter((p) => Number.isFinite(p.lng) && Number.isFinite(p.lat));
-          setPathCount(path.length);
-
-          if (path.length >= 3) {
-            const polygon = new AMap.Polygon({
-              path,
-              strokeColor: '#111827',
-              strokeWeight: 2,
-              fillColor: '#111827',
-              fillOpacity: 0.18,
-            });
-            polygon.setMap(map);
-            polygonRef.current = polygon;
-            map.setFitView([polygon], true, [32, 32, 32, 32], 16);
-          } else {
-            setStatus('no_polygon');
-            return;
-          }
+        const geom = typeof geometry === 'string' ? JSON.parse(geometry) : geometry;
+        const ring = (geom?.coordinates?.[0] || []).map((p) => new AMap.LngLat(Number(p[0]), Number(p[1])));
+        if (ring.length >= 3) {
+          const poly = new AMap.Polygon({
+            path: ring,
+            strokeColor: '#111827',
+            strokeWeight: 2,
+            fillColor: '#111827',
+            fillOpacity: 0.18,
+          });
+          polygonRef.current = poly;
+          map.add(poly);
+          map.setFitView([poly]);
+        } else {
+          setError('区域数据无效');
         }
-
-        setStatus('ready');
-      } catch (e) {
-        void e;
-        setStatus('error');
+      } catch {
+        setError('地图加载失败');
       }
     };
-
-    requestAnimationFrame(() => {
-      init();
-    });
-
+    run();
     return () => {
       destroyed = true;
       try {
-        polygonRef.current?.setMap?.(null);
+        polygonRef.current?.setMap(null);
         polygonRef.current = null;
       } catch (e) { void e; }
       try {
@@ -148,75 +68,31 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
         mapRef.current = null;
       } catch (e) { void e; }
     };
-  }, [open, amapKey, amapSecurityJsCode, normalized]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') onClose?.();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
+  }, [amapKey, amapSecurityJsCode, geometry]);
 
   return (
     <div className="fixed inset-0 z-[2000]">
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/50 z-[2000]"
-        aria-label="关闭"
-      />
-      <div className="absolute inset-0 p-4 md:p-8 flex items-center justify-center z-[2001]">
-        <div className="w-full max-w-4xl h-[80vh] min-h-[420px] bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-200 flex flex-col">
-          <div className="px-4 py-3 border-b flex items-center justify-between">
-            <div className="font-semibold text-gray-900">查看区域</div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-lg hover:bg-gray-100 text-gray-700"
-              aria-label="关闭"
-              title="关闭"
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <div className="flex-1 relative">
-            <div className="absolute right-2 top-2 z-[2002] text-[10px] text-gray-500 bg-white/80 px-2 py-0.5 rounded">
-              {status}
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-6 md:inset-10 bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-3 border-b">
+          <div className="font-semibold text-gray-800 text-sm">区域预览</div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+            aria-label="关闭"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 relative">
+          <div ref={containerRef} className="absolute inset-0" />
+          {error && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="px-4 py-2 rounded-lg bg-red-50 text-red-700 text-sm border border-red-100">
+                {error}
+              </div>
             </div>
-            <div ref={containerRef} className="absolute inset-0" />
-            {svgPath && (status === 'missing_key' || status === 'error' || status === 'idle') && (
-              <div className="absolute inset-0">
-                <svg viewBox="0 0 1000 1000" className="w-full h-full">
-                  <rect x="0" y="0" width="1000" height="1000" fill="#f8fafc" />
-                  <path d={svgPath} fill="rgba(17,24,39,0.18)" stroke="#111827" strokeWidth="6" />
-                </svg>
-              </div>
-            )}
-            {status === 'missing_key' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white">
-                <div className="text-sm text-gray-700 font-medium">缺少 VITE_AMAP_KEY</div>
-              </div>
-            )}
-            {status === 'loading' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white">
-                <div className="text-sm text-gray-700 font-medium">地图加载中...</div>
-              </div>
-            )}
-            {status === 'error' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white">
-                <div className="text-sm text-gray-700 font-medium">地图加载失败</div>
-              </div>
-            )}
-            {status === 'no_polygon' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white">
-                <div className="text-sm text-gray-700 font-medium">区域数据无效（点数：{pathCount}）</div>
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
     </div>
