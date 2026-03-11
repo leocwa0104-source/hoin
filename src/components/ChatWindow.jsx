@@ -1,96 +1,41 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, ArrowLeft, LogOut } from 'lucide-react';
 import { api } from '../api';
+import { getAmapPosition } from '../amap';
+
+const pointInRing = (point, ring) => {
+  const x = point[0];
+  const y = point[1];
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0];
+    const yi = ring[i][1];
+    const xj = ring[j][0];
+    const yj = ring[j][1];
+    const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
+const pointInPolygon = (point, polygon) => {
+  if (!polygon || polygon.type !== 'Polygon' || !Array.isArray(polygon.coordinates) || polygon.coordinates.length === 0) {
+    return false;
+  }
+  const [outerRing, ...holes] = polygon.coordinates;
+  if (!pointInRing(point, outerRing)) return false;
+  for (const hole of holes) {
+    if (pointInRing(point, hole)) return false;
+  }
+  return true;
+};
 
 const ChatWindow = ({ user, area, onBack, onLogout }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef(null);
-
-  const pointInRing = (point, ring) => {
-    const x = point[0];
-    const y = point[1];
-    let inside = false;
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const xi = ring[i][0];
-      const yi = ring[i][1];
-      const xj = ring[j][0];
-      const yj = ring[j][1];
-      const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  };
-
-  const pointInPolygon = (point, polygon) => {
-    if (!polygon || polygon.type !== 'Polygon' || !Array.isArray(polygon.coordinates) || polygon.coordinates.length === 0) {
-      return false;
-    }
-    const [outerRing, ...holes] = polygon.coordinates;
-    if (!pointInRing(point, outerRing)) return false;
-    for (const hole of holes) {
-      if (pointInRing(point, hole)) return false;
-    }
-    return true;
-  };
-
-  const pickPointInside = (polygon) => {
-    const outer = polygon?.coordinates?.[0];
-    if (!Array.isArray(outer) || outer.length < 3) return null;
-
-    const ring = outer.slice();
-    const first = ring[0];
-    const last = ring[ring.length - 1];
-    if (first?.[0] === last?.[0] && first?.[1] === last?.[1]) ring.pop();
-
-    let minLng = Infinity;
-    let minLat = Infinity;
-    let maxLng = -Infinity;
-    let maxLat = -Infinity;
-    for (const p of ring) {
-      const lng = Number(p[0]);
-      const lat = Number(p[1]);
-      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
-      if (lng < minLng) minLng = lng;
-      if (lat < minLat) minLat = lat;
-      if (lng > maxLng) maxLng = lng;
-      if (lat > maxLat) maxLat = lat;
-    }
-
-    const avgLng = ring.reduce((sum, p) => sum + Number(p[0]), 0) / ring.length;
-    const avgLat = ring.reduce((sum, p) => sum + Number(p[1]), 0) / ring.length;
-    const centroid = [avgLng, avgLat];
-    if (pointInPolygon(centroid, { type: 'Polygon', coordinates: [outer] })) return centroid;
-
-    for (let i = 0; i < 40; i += 1) {
-      const lng = minLng + Math.random() * (maxLng - minLng);
-      const lat = minLat + Math.random() * (maxLat - minLat);
-      const pt = [lng, lat];
-      if (pointInPolygon(pt, { type: 'Polygon', coordinates: [outer] })) return pt;
-    }
-
-    const fallback = ring[0];
-    if (!fallback) return null;
-    return [Number(fallback[0]), Number(fallback[1])];
-  };
-
-  const getCurrentPosition = () =>
-    new Promise((resolve, reject) => {
-      if (!('geolocation' in navigator)) {
-        reject(new Error('no_geo'));
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          resolve({
-            lng: pos.coords.longitude,
-            lat: pos.coords.latitude,
-          });
-        },
-        (err) => reject(err),
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 5000 }
-      );
-    });
+  const lastPositionRef = useRef(null);
+  const [locationState, setLocationState] = useState('checking');
 
   // Polling for messages instead of WebSocket
   useEffect(() => {
@@ -124,40 +69,52 @@ const ChatWindow = ({ user, area, onBack, onLogout }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const geometry = typeof area.geometry === 'string' ? JSON.parse(area.geometry) : area.geometry;
+
+    const update = async () => {
+      try {
+        const pos = await getAmapPosition();
+        if (cancelled) return;
+        lastPositionRef.current = pos;
+        const inside = pointInPolygon([pos.lng, pos.lat], geometry);
+        setLocationState(inside ? 'inside' : 'outside');
+      } catch (e) {
+        if (cancelled) return;
+        lastPositionRef.current = null;
+        setLocationState('unavailable');
+        void e;
+      }
+    };
+
+    Promise.resolve().then(() => { if (!cancelled) setLocationState('checking'); });
+    Promise.resolve().then(update);
+    const interval = setInterval(() => {
+      Promise.resolve().then(update);
+    }, 8000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [area.id, area.geometry]);
+
   const handleSend = async (e) => {
     e.preventDefault();
     if (!inputText.trim()) return;
+    if (locationState !== 'inside') return;
 
-    const geometry = typeof area.geometry === 'string' ? JSON.parse(area.geometry) : area.geometry;
-    let lng;
-    let lat;
-    try {
-      const pos = await getCurrentPosition();
-      if (pos && Number.isFinite(pos.lng) && Number.isFinite(pos.lat)) {
-        const inside = pointInPolygon([pos.lng, pos.lat], geometry);
-        if (!inside) {
-          alert('你当前不在该区域内，无法发送消息。');
-          return;
-        }
-        lng = pos.lng;
-        lat = pos.lat;
-      } else {
-        const picked = pickPointInside(geometry);
-        if (!picked) return;
-        lng = picked[0];
-        lat = picked[1];
-      }
-    } catch {
-      const picked = pickPointInside(geometry);
-      if (!picked) return;
-      lng = picked[0];
-      lat = picked[1];
+    let pos = lastPositionRef.current;
+    if (!pos) {
+      pos = await getAmapPosition();
+      lastPositionRef.current = pos;
     }
 
     const msgData = {
       content: inputText,
-      lat,
-      lng
+      lat: pos.lat,
+      lng: pos.lng
     };
 
     try {
@@ -223,24 +180,32 @@ const ChatWindow = ({ user, area, onBack, onLogout }) => {
       </div>
 
       {/* Input */}
-      <div className="p-4 bg-white border-t border-gray-200">
-        <form onSubmit={handleSend} className="flex gap-2 relative">
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder="Broadcast message..."
-            className="flex-1 bg-gray-100 border-0 rounded-xl px-4 py-3 pr-12 focus:ring-2 focus:ring-black focus:bg-white transition-all outline-none"
-          />
-          <button 
-            type="submit"
-            disabled={!inputText.trim()}
-            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black hover:bg-gray-800 disabled:opacity-30 text-white p-1.5 rounded-lg transition-colors"
-          >
-            <Send size={18} />
-          </button>
-        </form>
-      </div>
+      {locationState === 'inside' ? (
+        <div className="p-4 bg-white border-t border-gray-200">
+          <form onSubmit={handleSend} className="flex gap-2 relative">
+            <input
+              type="text"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="Broadcast message..."
+              className="flex-1 bg-gray-100 border-0 rounded-xl px-4 py-3 pr-12 focus:ring-2 focus:ring-black focus:bg-white transition-all outline-none"
+            />
+            <button 
+              type="submit"
+              disabled={!inputText.trim()}
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-black hover:bg-gray-800 disabled:opacity-30 text-white p-1.5 rounded-lg transition-colors"
+            >
+              <Send size={18} />
+            </button>
+          </form>
+        </div>
+      ) : (
+        <div className="p-4 bg-white border-t border-gray-200 text-sm text-gray-600">
+          {locationState === 'checking' && '定位中...'}
+          {locationState === 'outside' && '你当前不在该区域内，无法发送消息。'}
+          {locationState === 'unavailable' && '无法获取定位，请在浏览器允许高德定位后再试。'}
+        </div>
+      )}
     </div>
   );
 };
