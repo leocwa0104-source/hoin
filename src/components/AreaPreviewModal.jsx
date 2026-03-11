@@ -25,6 +25,44 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
   const normalized = useMemo(() => normalizeGeometry(geometry), [geometry]);
   const [status, setStatus] = useState(amapKey ? 'idle' : 'missing_key');
   const [pathCount, setPathCount] = useState(0);
+  const svgPath = useMemo(() => {
+    const poly = normalized;
+    if (!poly || poly.type !== 'Polygon' || !Array.isArray(poly.coordinates) || poly.coordinates.length === 0) {
+      return null;
+    }
+    const outer = poly.coordinates[0] || [];
+    if (!Array.isArray(outer) || outer.length < 3) return null;
+    let minLng = Infinity;
+    let minLat = Infinity;
+    let maxLng = -Infinity;
+    let maxLat = -Infinity;
+    const pts = [];
+    for (const p of outer) {
+      const lng = Number(p[0]);
+      const lat = Number(p[1]);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+      pts.push([lng, lat]);
+      if (lng < minLng) minLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lng > maxLng) maxLng = lng;
+      if (lat > maxLat) maxLat = lat;
+    }
+    const w = maxLng - minLng || 1;
+    const h = maxLat - minLat || 1;
+    const toSvg = (lng, lat) => {
+      const x = ((lng - minLng) / w) * 1000;
+      const y = (1 - (lat - minLat) / h) * 1000; // invert Y
+      return [x, y];
+    };
+    const d = pts
+      .map(([lng, lat], i) => {
+        const [x, y] = toSvg(lng, lat);
+        return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+      })
+      .join(' ')
+      .concat(' Z');
+    return d;
+  }, [normalized]);
 
   useEffect(() => {
     if (!open) return;
@@ -147,6 +185,14 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
           </div>
           <div className="flex-1 relative">
             <div ref={containerRef} className="absolute inset-0" />
+            {svgPath && (status === 'missing_key' || status === 'error' || status === 'idle') && (
+              <div className="absolute inset-0">
+                <svg viewBox="0 0 1000 1000" className="w-full h-full">
+                  <rect x="0" y="0" width="1000" height="1000" fill="#f8fafc" />
+                  <path d={svgPath} fill="rgba(17,24,39,0.18)" stroke="#111827" strokeWidth="6" />
+                </svg>
+              </div>
+            )}
             {status === 'missing_key' && (
               <div className="absolute inset-0 flex items-center justify-center bg-white">
                 <div className="text-sm text-gray-700 font-medium">缺少 VITE_AMAP_KEY</div>
