@@ -74,6 +74,24 @@ const ChatWindow = ({ user, area, onBack, onLogout }) => {
     return [Number(fallback[0]), Number(fallback[1])];
   };
 
+  const getCurrentPosition = () =>
+    new Promise((resolve, reject) => {
+      if (!('geolocation' in navigator)) {
+        reject(new Error('no_geo'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          resolve({
+            lng: pos.coords.longitude,
+            lat: pos.coords.latitude,
+          });
+        },
+        (err) => reject(err),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 5000 }
+      );
+    });
+
   // Polling for messages instead of WebSocket
   useEffect(() => {
     let isMounted = true;
@@ -111,10 +129,30 @@ const ChatWindow = ({ user, area, onBack, onLogout }) => {
     if (!inputText.trim()) return;
 
     const geometry = typeof area.geometry === 'string' ? JSON.parse(area.geometry) : area.geometry;
-    const picked = pickPointInside(geometry);
-    if (!picked) return;
-    const lng = picked[0];
-    const lat = picked[1];
+    let lng;
+    let lat;
+    try {
+      const pos = await getCurrentPosition();
+      if (pos && Number.isFinite(pos.lng) && Number.isFinite(pos.lat)) {
+        const inside = pointInPolygon([pos.lng, pos.lat], geometry);
+        if (!inside) {
+          alert('你当前不在该区域内，无法发送消息。');
+          return;
+        }
+        lng = pos.lng;
+        lat = pos.lat;
+      } else {
+        const picked = pickPointInside(geometry);
+        if (!picked) return;
+        lng = picked[0];
+        lat = picked[1];
+      }
+    } catch {
+      const picked = pickPointInside(geometry);
+      if (!picked) return;
+      lng = picked[0];
+      lat = picked[1];
+    }
 
     const msgData = {
       content: inputText,
