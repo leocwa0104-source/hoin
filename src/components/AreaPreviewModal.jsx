@@ -24,6 +24,7 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
 
   const normalized = useMemo(() => normalizeGeometry(geometry), [geometry]);
   const [status, setStatus] = useState(amapKey ? 'idle' : 'missing_key');
+  const [pathCount, setPathCount] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -45,28 +46,46 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
         if (destroyed) return;
         if (!containerRef.current) return;
 
+        const center = (() => {
+          const outer = normalized?.coordinates?.[0];
+          if (!Array.isArray(outer) || outer.length === 0) return undefined;
+          const first = outer[0];
+          const lng = Number(first?.[0]);
+          const lat = Number(first?.[1]);
+          if (!Number.isFinite(lng) || !Number.isFinite(lat)) return undefined;
+          return [lng, lat];
+        })();
+
         const map = new AMap.Map(containerRef.current, {
           viewMode: '2D',
           zoom: 13,
+          center,
         });
         mapRef.current = map;
+        map.resize?.();
 
         if (normalized?.type === 'Polygon' && Array.isArray(normalized.coordinates) && normalized.coordinates.length > 0) {
           const outer = normalized.coordinates[0] || [];
           const path = outer
             .map((p) => ({ lng: Number(p[0]), lat: Number(p[1]) }))
             .filter((p) => Number.isFinite(p.lng) && Number.isFinite(p.lat));
+          setPathCount(path.length);
 
-          const polygon = new AMap.Polygon({
-            path,
-            strokeColor: '#111827',
-            strokeWeight: 2,
-            fillColor: '#111827',
-            fillOpacity: 0.18,
-          });
-          polygon.setMap(map);
-          polygonRef.current = polygon;
-          map.setFitView([polygon], true, [32, 32, 32, 32], 16);
+          if (path.length >= 3) {
+            const polygon = new AMap.Polygon({
+              path,
+              strokeColor: '#111827',
+              strokeWeight: 2,
+              fillColor: '#111827',
+              fillOpacity: 0.18,
+            });
+            polygon.setMap(map);
+            polygonRef.current = polygon;
+            map.setFitView([polygon], true, [32, 32, 32, 32], 16);
+          } else {
+            setStatus('no_polygon');
+            return;
+          }
         }
 
         setStatus('ready');
@@ -76,7 +95,9 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
       }
     };
 
-    init();
+    requestAnimationFrame(() => {
+      init();
+    });
 
     return () => {
       destroyed = true;
@@ -139,6 +160,11 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
             {status === 'error' && (
               <div className="absolute inset-0 flex items-center justify-center bg-white">
                 <div className="text-sm text-gray-700 font-medium">地图加载失败</div>
+              </div>
+            )}
+            {status === 'no_polygon' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white">
+                <div className="text-sm text-gray-700 font-medium">区域数据无效（点数：{pathCount}）</div>
               </div>
             )}
           </div>
