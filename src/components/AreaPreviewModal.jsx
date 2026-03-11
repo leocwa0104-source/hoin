@@ -166,10 +166,10 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
       <button
         type="button"
         onClick={onClose}
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/50 z-[2000]"
         aria-label="关闭"
       />
-      <div className="absolute inset-0 p-4 md:p-8 flex items-center justify-center">
+      <div className="absolute inset-0 p-4 md:p-8 flex items-center justify-center z-[2001]">
         <div className="w-full max-w-4xl h-[80vh] min-h-[420px] bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-200 flex flex-col">
           <div className="px-4 py-3 border-b flex items-center justify-between">
             <div className="font-semibold text-gray-900">查看区域</div>
@@ -184,6 +184,9 @@ const AreaPreviewModal = ({ open, onClose, geometry }) => {
             </button>
           </div>
           <div className="flex-1 relative">
+            <div className="absolute right-2 top-2 z-[2002] text-[10px] text-gray-500 bg-white/80 px-2 py-0.5 rounded">
+              {status}
+            </div>
             <div ref={containerRef} className="absolute inset-0" />
             {svgPath && (status === 'missing_key' || status === 'error' || status === 'idle') && (
               <div className="absolute inset-0">
