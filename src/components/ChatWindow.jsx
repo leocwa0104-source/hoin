@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ArrowLeft, LogOut, Map as MapIcon } from 'lucide-react';
+import { Send, ArrowLeft, LogOut } from 'lucide-react';
 import { api } from '../api';
-import AreaPreviewModal from './AreaPreviewModal';
 
 const ChatWindow = ({ user, area, onBack, onLogout }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef(null);
-  const [showPreview, setShowPreview] = useState(false);
 
   const pointInRing = (point, ring) => {
     const x = point[0];
@@ -150,14 +148,6 @@ const ChatWindow = ({ user, area, onBack, onLogout }) => {
             </span>
           </h2>
         </div>
-        <button
-          onClick={() => setShowPreview(true)}
-          className="text-gray-600 hover:text-gray-900 p-2 rounded-full hover:bg-gray-100 transition-colors"
-          aria-label="查看区域"
-          title="查看区域"
-        >
-          <MapIcon size={18} />
-        </button>
         {onLogout && (
           <button
             onClick={onLogout}
@@ -213,12 +203,6 @@ const ChatWindow = ({ user, area, onBack, onLogout }) => {
           </button>
         </form>
       </div>
-      {showPreview && (
-        <AreaPreviewModal
-          geometry={area.geometry}
-          onClose={() => setShowPreview(false)}
-        />
-      )}
     </div>
   );
 };
